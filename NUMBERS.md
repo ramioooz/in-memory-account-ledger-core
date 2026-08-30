@@ -19,7 +19,7 @@ E7 contributes AED -620.00 on Day 2. Its negative closes append one AED 25 fee o
 
 ## Interest
 
-The daily rate is exactly `4 / 10000`, or 0.04%. Each positive daily close is rounded to the currency's minor unit before the accruals are summed.
+The daily rate is 0.04%, represented as `0.0004` or the exact fraction `4 / 10000`. Each positive daily close is rounded to the currency's minor unit before the accruals are summed.
 
 ```text
 ACC-001: 0.10 + 0.09 + 0.25 + 0.17 + 0.16 + 0.16 = AED 0.93
