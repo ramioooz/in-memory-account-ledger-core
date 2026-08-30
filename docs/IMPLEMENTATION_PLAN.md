@@ -2,7 +2,7 @@
 
 **Goal:** Build the approved TypeScript replay program, focused tests and required documentation.
 
-**Architecture:** Replay the supplied events in order, append immutable value-dated ledger entries and track authorization holds separately. Derive daily ledger and available balances from the resulting entries and holds, while preserving posted fees when a later reversal restates history.
+**Architecture:** Replay the supplied events in order, append immutable value-dated ledger entries and track authorization holds separately. Derive daily ledger and available balances from the resulting entries and holds, while preserving posted fees when a later reversal restates history. After the supplied stream is complete, finalize every account through Day 6 before calculating and capitalizing interest.
 
 **Tech stack:** Node.js, TypeScript, `bigint`, Vitest and tsx.
 
@@ -16,6 +16,7 @@
 - Process E1–E10 in the supplied order while applying financial effects by value day.
 - Never mutate or delete a ledger entry.
 - Keep authorization holds outside the ledger balance.
+- Finalize every account through Day 6 before calculating interest from the final restated daily closes.
 - Keep code and documentation concise and free of duplicated explanations.
 - Preserve the branch and unsquashed commit history.
 - Capture each `WORKLOG.md` timestamp from `date -Iseconds` when the work occurs; do not reconstruct entries later.
@@ -374,7 +375,7 @@ Run `npm test -- tests/replay.test.ts tests/authorization.test.ts`. Expected res
 
 - [ ] **Step 4: Implement daily closure and retrospective fee reconciliation**
 
-Track which account/day fee assessments have already been appended. Close forward days only when an event day exceeds the highest event day seen so far. After any financial entry whose value day is already closed, recalculate chronologically from its value day through the latest closed day. Append missing AED 25 fees only when the day closes negative; let each appended fee affect following days. This also handles E10 appearing after E9 without moving the replay clock backwards.
+Track which account/day fee assessments have already been appended. Close forward days only when an event day exceeds the highest event day seen so far. After any financial entry whose value day is already closed, recalculate chronologically from its value day through the latest closed day. Append missing AED 25 fees only when the day closes negative; let each appended fee affect following days. After the source-event loop, explicitly finalize every account through Day 6. This ensures ACC-002's Day 5 and Day 6 closes are produced even though E10 appears after the Day 6 event, without moving the replay clock backwards.
 
 Implement E9 by locating E7 and appending its opposite amount with Day 2 value date. Do not mutate E7 or remove fee entries. Do not rerun earlier authorization decisions.
 
@@ -426,7 +427,7 @@ expect(accrualsForAcc001.map((item) => item.amount)).toEqual([
 expect(interestEntryForAcc001.amount).toBe(93n);
 ```
 
-Assert ACC-002 has Day 5 and Day 6 accruals of `4n` and one BHD `8n` capitalization entry.
+Assert ACC-002's pre-interest closing balances are BHD `10000n` on both Day 5 and Day 6, its corresponding daily accruals are `4n` and `4n`, and it has one BHD `8n` capitalization entry.
 
 - [ ] **Step 2: Write the failing full-scenario test**
 
@@ -438,7 +439,7 @@ Run `npm test -- tests/interest.test.ts tests/scenario.test.ts`. Expected result
 
 - [ ] **Step 4: Implement installments and interest**
 
-For installment credits, append one ledger entry per amount returned by `splitEvenly`, retaining E10 as the source event ID. After every source event and fee assessment is complete, calculate each positive pre-capitalization daily close, round it with `roundRatio`, retain the daily accrual and append their exact sum as one Day 6 interest credit.
+For installment credits, append one ledger entry per amount returned by `splitEvenly`, retaining E10 as the source event ID. Process every source event, reconcile late value-dated entries, finalize every account through Day 6 and append any missing daily fees. Then calculate each positive pre-capitalization daily close, round it with `roundRatio`, retain the daily accrual and append their exact sum as one Day 6 interest credit.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -522,7 +523,7 @@ Keep each document focused:
 - `README.md`: prerequisites, install/test/replay commands, design summary and sample output.
 - `NUMBERS.md`: AED/BHD precision, AED 25 fee, 0.04% interest, Day 6 capitalization and BHD installment allocation.
 - `AMBIGUITIES.md`: late fee reconciliation, fee retention after reversal, daily interest rounding and out-of-order E10 handling.
-- `REJECTED.md`: the four rejected criteria and the mutable-balance, aggregate-rounding and equal-installment approaches not used.
+- `REJECTED.md`: explicitly identify criteria #2, #6, #7 and #8 as rejected. Explain for #6 that E9 reverses only E7's principal and no rule or event reverses already posted fees; append-only history alone does not prohibit a separate compensating entry. Also record the mutable-balance, aggregate-rounding and equal-installment approaches not used.
 - `WORKLOG.md`: retain only genuine timestamps and work performed.
 
 - [ ] **Step 5: Verify and commit**
