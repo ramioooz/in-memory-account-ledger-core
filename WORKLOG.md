@@ -5,3 +5,4 @@
 - 2026-08-30T19:08:13+04:00 — Added append-only entries, authorization holds, matching settlement and unknown-authorization rejection.
 - 2026-08-30T19:10:04+04:00 — Added late value-date reconciliation, one fee per negative day, Auth-B rejection and append-only reversal.
 - 2026-08-30T19:11:29+04:00 — Added conserving BHD installments and one Day 6 capitalization credit from rounded daily interest accruals.
+- 2026-08-30T19:13:47+04:00 — Added daily reporting, executable rejected behavior and concise numerical and decision records.

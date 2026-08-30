@@ -81,6 +81,7 @@ export interface AuthorizationRecord {
 export interface ReplayError {
   readonly eventId: string;
   readonly eventDay: Day;
+  readonly accountId: string;
   readonly code: string;
   readonly message: string;
 }

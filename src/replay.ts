@@ -97,6 +97,7 @@ export function replay(
       errors.push({
         eventId: event.id,
         eventDay: event.eventDay,
+        accountId: event.accountId,
         code: "ACCOUNT_OR_CURRENCY_INVALID",
         message: "The event account or currency is invalid",
       });
@@ -156,6 +157,7 @@ export function replay(
         errors.push({
           eventId: event.id,
           eventDay: event.eventDay,
+          accountId: event.accountId,
           code: "AUTHORIZATION_NOT_FOUND",
           message: `No active authorization found for ${event.authorizationId}`,
         });
@@ -184,6 +186,7 @@ export function replay(
       errors.push({
         eventId: event.id,
         eventDay: event.eventDay,
+        accountId: event.accountId,
         code: "REVERSAL_TARGET_NOT_FOUND",
         message: `No ledger entry found for ${event.reversesEventId}`,
       });
