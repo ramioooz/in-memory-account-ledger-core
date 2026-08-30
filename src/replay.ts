@@ -1,4 +1,5 @@
 import { Ledger } from "./ledger.js";
+import { roundRatio, splitEvenly } from "./money.js";
 import type {
   AccountConfig,
   AuthorizationRecord,
@@ -21,6 +22,8 @@ export interface ReplayResult {
 }
 
 export const OVERDRAFT_FEE_AED = 2500n;
+export const DAILY_INTEREST_NUMERATOR = 4n;
+export const DAILY_INTEREST_DENOMINATOR = 10000n;
 
 export function activeHoldAtDay(
   authorization: AuthorizationRecord,
@@ -64,6 +67,7 @@ export function replay(
     accounts.map((account) => [account.id, account.currency]),
   );
   const assessedFees = new Set<string>();
+  const interestAccruals: InterestAccrual[] = [];
 
   const assessFeesThrough = (accountId: string, throughDay: Day): void => {
     if (accountCurrencies.get(accountId) !== "AED") {
@@ -100,14 +104,21 @@ export function replay(
     }
 
     if (event.type === "CREDIT" || event.type === "DEBIT") {
-      ledger.append({
-        sourceEventId: event.id,
-        accountId: event.accountId,
-        currency: event.currency,
-        amount: event.type === "CREDIT" ? event.amount : -event.amount,
-        valueDay: event.valueDay,
-        type: event.type,
-      });
+      const amounts =
+        event.type === "CREDIT" && event.installments !== undefined
+          ? splitEvenly(event.amount, event.installments)
+          : [event.type === "CREDIT" ? event.amount : -event.amount];
+
+      for (const amount of amounts) {
+        ledger.append({
+          sourceEventId: event.id,
+          accountId: event.accountId,
+          currency: event.currency,
+          amount,
+          valueDay: event.valueDay,
+          type: event.type,
+        });
+      }
       assessFeesThrough(event.accountId, event.eventDay);
       continue;
     }
@@ -196,10 +207,49 @@ export function replay(
     assessFeesThrough(account.id, options.endDay);
   }
 
+  if (options.capitalizeInterest) {
+    for (const account of accounts) {
+      for (let day = 1; day <= options.endDay; day += 1) {
+        const valueDay = day as Day;
+        const closingBalance = ledger.balance(account.id, valueDay);
+
+        if (closingBalance <= 0n) {
+          continue;
+        }
+
+        interestAccruals.push({
+          accountId: account.id,
+          currency: account.currency,
+          day: valueDay,
+          amount: roundRatio(
+            closingBalance,
+            DAILY_INTEREST_NUMERATOR,
+            DAILY_INTEREST_DENOMINATOR,
+          ),
+        });
+      }
+
+      const capitalization = interestAccruals
+        .filter((accrual) => accrual.accountId === account.id)
+        .reduce((total, accrual) => total + accrual.amount, 0n);
+
+      if (capitalization > 0n) {
+        ledger.append({
+          sourceEventId: `INTEREST-${account.id}`,
+          accountId: account.id,
+          currency: account.currency,
+          amount: capitalization,
+          valueDay: options.endDay,
+          type: "INTEREST",
+        });
+      }
+    }
+  }
+
   return {
     ledger,
     authorizations,
     errors,
-    interestAccruals: [],
+    interestAccruals,
   };
 }

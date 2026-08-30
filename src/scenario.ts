@@ -91,4 +91,14 @@ export const events: readonly SourceEvent[] = [
     currency: "AED",
     reversesEventId: "E7",
   },
+  {
+    id: "E10",
+    type: "CREDIT",
+    eventDay: 5,
+    valueDay: 5,
+    accountId: "ACC-002",
+    currency: "BHD",
+    amount: 10000n,
+    installments: 3,
+  },
 ];
