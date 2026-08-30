@@ -4,7 +4,7 @@ A small TypeScript ledger that replays a fixed stream of credits, debits, author
 
 ## Run
 
-Requires Node.js 20 or newer.
+Requires Node.js `^20.19.0`, `^22.12.0` or `>=24.0.0`.
 
 ```text
 npm install
