@@ -42,4 +42,16 @@ describe("authorization replay", () => {
       result.ledger.allEntries().some((entry) => entry.sourceEventId === "E6"),
     ).toBe(false);
   });
+
+  test("rejects Auth-B when the known Day 5 balance cannot cover its hold", () => {
+    const result = replay(accounts, events.slice(0, 9), {
+      endDay: 6,
+      capitalizeInterest: false,
+    });
+    const authB = result.authorizations.get("Auth-B");
+
+    expect(authB?.status).toBe("REJECTED");
+    expect(authB?.rejectionReason).toBe("INSUFFICIENT_AVAILABLE_BALANCE");
+    expect(activeHoldAtDay(authB!, 5)).toBe(0n);
+  });
 });

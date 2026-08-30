@@ -20,6 +20,8 @@ export interface ReplayResult {
   readonly interestAccruals: readonly InterestAccrual[];
 }
 
+export const OVERDRAFT_FEE_AED = 2500n;
+
 export function activeHoldAtDay(
   authorization: AuthorizationRecord,
   day: Day,
@@ -35,10 +37,25 @@ export function activeHoldAtDay(
   return authorization.holdAmount;
 }
 
+export function availableBalanceAt(
+  result: ReplayResult,
+  accountId: string,
+  day: Day,
+): bigint {
+  const holds = [...result.authorizations.values()].reduce(
+    (total, authorization) =>
+      authorization.accountId === accountId
+        ? total + activeHoldAtDay(authorization, day)
+        : total,
+    0n,
+  );
+  return result.ledger.balance(accountId, day) - holds;
+}
+
 export function replay(
   accounts: readonly AccountConfig[],
   events: readonly SourceEvent[],
-  _options: ReplayOptions,
+  options: ReplayOptions,
 ): ReplayResult {
   const ledger = new Ledger();
   const authorizations = new Map<string, AuthorizationRecord>();
@@ -46,6 +63,30 @@ export function replay(
   const accountCurrencies = new Map(
     accounts.map((account) => [account.id, account.currency]),
   );
+  const assessedFees = new Set<string>();
+
+  const assessFeesThrough = (accountId: string, throughDay: Day): void => {
+    if (accountCurrencies.get(accountId) !== "AED") {
+      return;
+    }
+
+    for (let day = 1; day <= throughDay; day += 1) {
+      const valueDay = day as Day;
+      const key = `${accountId}:${valueDay}`;
+
+      if (!assessedFees.has(key) && ledger.balance(accountId, valueDay) < 0n) {
+        ledger.append({
+          sourceEventId: `FEE-${accountId}-D${valueDay}`,
+          accountId,
+          currency: "AED",
+          amount: -OVERDRAFT_FEE_AED,
+          valueDay,
+          type: "OVERDRAFT_FEE",
+        });
+        assessedFees.add(key);
+      }
+    }
+  };
 
   for (const event of events) {
     if (accountCurrencies.get(event.accountId) !== event.currency) {
@@ -67,6 +108,7 @@ export function replay(
         valueDay: event.valueDay,
         type: event.type,
       });
+      assessFeesThrough(event.accountId, event.eventDay);
       continue;
     }
 
@@ -119,10 +161,39 @@ export function replay(
       });
       authorization.status = "SETTLED";
       authorization.settledDay = event.eventDay;
+      assessFeesThrough(event.accountId, event.eventDay);
       continue;
     }
 
-    throw new Error(`Unsupported event type: ${event.type}`);
+    const reversedEntries = ledger
+      .allEntries()
+      .filter((entry) => entry.sourceEventId === event.reversesEventId);
+
+    if (reversedEntries.length === 0) {
+      errors.push({
+        eventId: event.id,
+        eventDay: event.eventDay,
+        code: "REVERSAL_TARGET_NOT_FOUND",
+        message: `No ledger entry found for ${event.reversesEventId}`,
+      });
+      continue;
+    }
+
+    for (const reversedEntry of reversedEntries) {
+      ledger.append({
+        sourceEventId: event.id,
+        accountId: event.accountId,
+        currency: event.currency,
+        amount: -reversedEntry.amount,
+        valueDay: event.valueDay,
+        type: "REVERSAL",
+      });
+    }
+    assessFeesThrough(event.accountId, event.eventDay);
+  }
+
+  for (const account of accounts) {
+    assessFeesThrough(account.id, options.endDay);
   }
 
   return {
