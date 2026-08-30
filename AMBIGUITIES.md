@@ -1,0 +1,25 @@
+# Ambiguities
+
+## Arrival order and value day
+
+The source stream is processed exactly as supplied. It is not sorted by `valueDay`. Processing decisions use information known when an event arrives, while financial balances are derived from the value dates on appended entries.
+
+## Late entries and daily fees
+
+When E7 arrives on Day 5 with Day 2 value, daily closes are recalculated from Day 2 forward. A fee is appended once for each newly discovered negative close. The fee itself affects later closes, producing fees on Days 2, 4 and 5.
+
+## Reversal and previously posted fees
+
+E9 explicitly reverses E7's principal. No event or rule reverses the fees already appended because of E7, so those entries remain. A separate compensating fee event would be required to change that result.
+
+## Authorization decisions after restatement
+
+Authorization decisions are not rerun after a later event restates history. E8 is rejected because the balance known at its arrival cannot cover the AED 90 hold; E9 does not retroactively approve it.
+
+## Interest rounding
+
+Interest uses each final restated positive daily ledger close. Every daily accrual is rounded to the nearest minor unit, with exact halves away from zero. The capitalized amount is the exact sum of those stored daily accruals.
+
+## End-of-replay finalization
+
+E10 has Day 5 as both its event and value day but appears after the Day 6 event. The replay therefore finishes the supplied stream before explicitly finalizing every account through Day 6 and calculating interest.

@@ -122,7 +122,7 @@ Day 6  AED 390.00
 
 ## Interest
 
-Interest is calculated after all supplied events have been replayed, using the final restated positive closing balances before capitalization. Each daily accrual is rounded to the account currency's precision. The stored daily accruals are summed and appended as one credit at the end of Day 6.
+After all supplied events have been replayed, every account is finalized through Day 6 so late value-dated entries and any resulting fees are reflected in the daily closes. Interest is then calculated from the final restated positive closing balances before capitalization. Each daily accrual is rounded to the account currency's precision. The stored daily accruals are summed and appended as one credit at the end of Day 6.
 
 ACC-001 daily accruals are:
 
