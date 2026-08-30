@@ -4,10 +4,10 @@ export class Ledger {
   readonly #entries: LedgerEntry[] = [];
 
   append(entry: Omit<LedgerEntry, "id">): LedgerEntry {
-    const appended = {
+    const appended = Object.freeze({
       ...entry,
       id: `L${String(this.#entries.length + 1).padStart(4, "0")}`,
-    };
+    });
     this.#entries.push(appended);
     return appended;
   }
@@ -23,6 +23,6 @@ export class Ledger {
   }
 
   allEntries(): readonly LedgerEntry[] {
-    return this.#entries;
+    return [...this.#entries];
   }
 }

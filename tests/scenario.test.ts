@@ -92,5 +92,9 @@ describe("complete scenario", () => {
     const output = formatReports(reports);
     expect(output).toContain("ACC-001 Day 6 | ledger AED 390.93");
     expect(output).toContain("ACC-002 Day 6 | ledger BHD 10.008");
+    expect(output).toContain("Auth-A:ACTIVE hold AED 200.00");
+    expect(output).toContain(
+      "Auth-B:REJECTED hold AED 0.00 reason INSUFFICIENT_AVAILABLE_BALANCE",
+    );
   });
 });

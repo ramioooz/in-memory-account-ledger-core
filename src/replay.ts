@@ -67,7 +67,22 @@ export function replay(
     accounts.map((account) => [account.id, account.currency]),
   );
   const assessedFees = new Set<string>();
+  const reversedEventIds = new Set<string>();
   const interestAccruals: InterestAccrual[] = [];
+
+  const recordError = (
+    event: SourceEvent,
+    code: string,
+    message: string,
+  ): void => {
+    errors.push({
+      eventId: event.id,
+      eventDay: event.eventDay,
+      accountId: event.accountId,
+      code,
+      message,
+    });
+  };
 
   const assessFeesThrough = (accountId: string, throughDay: Day): void => {
     if (accountCurrencies.get(accountId) !== "AED") {
@@ -94,13 +109,36 @@ export function replay(
 
   for (const event of events) {
     if (accountCurrencies.get(event.accountId) !== event.currency) {
-      errors.push({
-        eventId: event.id,
-        eventDay: event.eventDay,
-        accountId: event.accountId,
-        code: "ACCOUNT_OR_CURRENCY_INVALID",
-        message: "The event account or currency is invalid",
-      });
+      recordError(
+        event,
+        "ACCOUNT_OR_CURRENCY_INVALID",
+        "The event account or currency is invalid",
+      );
+      continue;
+    }
+
+    const amount =
+      event.type === "AUTHORIZATION"
+        ? event.holdAmount
+        : event.type === "REVERSAL"
+          ? undefined
+          : event.amount;
+
+    if (amount !== undefined && amount <= 0n) {
+      recordError(event, "INVALID_AMOUNT", "The event amount must be positive");
+      continue;
+    }
+
+    if (
+      event.type === "CREDIT" &&
+      event.installments !== undefined &&
+      (!Number.isSafeInteger(event.installments) || event.installments <= 0)
+    ) {
+      recordError(
+        event,
+        "INVALID_INSTALLMENTS",
+        "Installments must be a positive integer",
+      );
       continue;
     }
 
@@ -125,6 +163,15 @@ export function replay(
     }
 
     if (event.type === "AUTHORIZATION") {
+      if (authorizations.has(event.authorizationId)) {
+        recordError(
+          event,
+          "DUPLICATE_AUTHORIZATION",
+          `Authorization ${event.authorizationId} already exists`,
+        );
+        continue;
+      }
+
       const activeHolds = [...authorizations.values()].reduce(
         (total, authorization) =>
           authorization.accountId === event.accountId &&
@@ -133,7 +180,8 @@ export function replay(
             : total,
         0n,
       );
-      const available = ledger.balance(event.accountId, event.eventDay) - activeHolds;
+      const available =
+        ledger.balance(event.accountId, event.eventDay) - activeHolds;
       const approved = available >= event.holdAmount;
 
       authorizations.set(event.authorizationId, {
@@ -154,13 +202,23 @@ export function replay(
       const authorization = authorizations.get(event.authorizationId);
 
       if (!authorization || authorization.status !== "ACTIVE") {
-        errors.push({
-          eventId: event.id,
-          eventDay: event.eventDay,
-          accountId: event.accountId,
-          code: "AUTHORIZATION_NOT_FOUND",
-          message: `No active authorization found for ${event.authorizationId}`,
-        });
+        recordError(
+          event,
+          "AUTHORIZATION_NOT_FOUND",
+          `No active authorization found for ${event.authorizationId}`,
+        );
+        continue;
+      }
+
+      if (
+        authorization.accountId !== event.accountId ||
+        authorization.currency !== event.currency
+      ) {
+        recordError(
+          event,
+          "AUTHORIZATION_REFERENCE_MISMATCH",
+          `Authorization ${event.authorizationId} belongs to another account or currency`,
+        );
         continue;
       }
 
@@ -183,13 +241,35 @@ export function replay(
       .filter((entry) => entry.sourceEventId === event.reversesEventId);
 
     if (reversedEntries.length === 0) {
-      errors.push({
-        eventId: event.id,
-        eventDay: event.eventDay,
-        accountId: event.accountId,
-        code: "REVERSAL_TARGET_NOT_FOUND",
-        message: `No ledger entry found for ${event.reversesEventId}`,
-      });
+      recordError(
+        event,
+        "REVERSAL_TARGET_NOT_FOUND",
+        `No ledger entry found for ${event.reversesEventId}`,
+      );
+      continue;
+    }
+
+    if (
+      reversedEntries.some(
+        (entry) =>
+          entry.accountId !== event.accountId ||
+          entry.currency !== event.currency,
+      )
+    ) {
+      recordError(
+        event,
+        "REVERSAL_REFERENCE_MISMATCH",
+        `Reversal target ${event.reversesEventId} belongs to another account or currency`,
+      );
+      continue;
+    }
+
+    if (reversedEventIds.has(event.reversesEventId)) {
+      recordError(
+        event,
+        "REVERSAL_ALREADY_APPLIED",
+        `Event ${event.reversesEventId} has already been reversed`,
+      );
       continue;
     }
 
@@ -203,6 +283,7 @@ export function replay(
         type: "REVERSAL",
       });
     }
+    reversedEventIds.add(event.reversesEventId);
     assessFeesThrough(event.accountId, event.eventDay);
   }
 

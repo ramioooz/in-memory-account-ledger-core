@@ -21,5 +21,7 @@ describe("money", () => {
 
   test("rounds an exact ratio to the nearest minor unit", () => {
     expect(roundRatio(41500n, 4n, 10000n)).toBe(17n);
+    expect(roundRatio(1n, 1n, 2n)).toBe(1n);
+    expect(roundRatio(-1n, 1n, 2n)).toBe(-1n);
   });
 });

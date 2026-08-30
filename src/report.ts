@@ -102,8 +102,12 @@ export function formatReports(reports: readonly DailyAccountReport[]): string {
       const authorizations = report.authorizations.length
         ? report.authorizations
             .map(
-              (authorization) =>
-                `${authorization.authorizationId}:${authorization.status}`,
+              (authorization) => {
+                const reason = authorization.rejectionReason
+                  ? ` reason ${authorization.rejectionReason}`
+                  : "";
+                return `${authorization.authorizationId}:${authorization.status} hold ${report.currency} ${formatMoney(authorization.activeHold, report.currency)}${reason}`;
+              },
             )
             .join(",")
         : "none";
