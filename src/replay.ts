@@ -25,6 +25,10 @@ export const OVERDRAFT_FEE_AED = 2500n;
 export const DAILY_INTEREST_NUMERATOR = 4n;
 export const DAILY_INTEREST_DENOMINATOR = 10000n;
 
+function assertNever(_event: never): never {
+  throw new Error("Unsupported event type");
+}
+
 export function activeHoldAtDay(
   authorization: AuthorizationRecord,
   day: Day,
@@ -81,6 +85,9 @@ export function replay(
       accountId: event.accountId,
       code,
       message,
+      ...(event.type === "SETTLEMENT"
+        ? { authorizationId: event.authorizationId }
+        : {}),
     });
   };
 
@@ -142,149 +149,160 @@ export function replay(
       continue;
     }
 
-    if (event.type === "CREDIT" || event.type === "DEBIT") {
-      const amounts =
-        event.type === "CREDIT" && event.installments !== undefined
-          ? splitEvenly(event.amount, event.installments)
-          : [event.type === "CREDIT" ? event.amount : -event.amount];
+    switch (event.type) {
+      case "CREDIT":
+      case "DEBIT": {
+        const amounts =
+          event.type === "CREDIT" && event.installments !== undefined
+            ? splitEvenly(event.amount, event.installments)
+            : [event.type === "CREDIT" ? event.amount : -event.amount];
 
-      for (const amount of amounts) {
+        for (const entryAmount of amounts) {
+          ledger.append({
+            sourceEventId: event.id,
+            accountId: event.accountId,
+            currency: event.currency,
+            amount: entryAmount,
+            valueDay: event.valueDay,
+            type: event.type,
+          });
+        }
+        assessFeesThrough(event.accountId, event.eventDay);
+        continue;
+      }
+
+      case "AUTHORIZATION": {
+        if (authorizations.has(event.authorizationId)) {
+          recordError(
+            event,
+            "DUPLICATE_AUTHORIZATION",
+            `Authorization ${event.authorizationId} already exists`,
+          );
+          continue;
+        }
+
+        const activeHolds = [...authorizations.values()].reduce(
+          (total, authorization) =>
+            authorization.accountId === event.accountId &&
+            authorization.status === "ACTIVE"
+              ? total + authorization.holdAmount
+              : total,
+          0n,
+        );
+        const available =
+          ledger.balance(event.accountId, event.eventDay) - activeHolds;
+        const approved = available >= event.holdAmount;
+
+        authorizations.set(event.authorizationId, {
+          authorizationId: event.authorizationId,
+          accountId: event.accountId,
+          currency: event.currency,
+          holdAmount: event.holdAmount,
+          availableBalanceAtDecision: available,
+          status: approved ? "ACTIVE" : "REJECTED",
+          decisionDay: event.eventDay,
+          ...(approved
+            ? {}
+            : { rejectionReason: "INSUFFICIENT_AVAILABLE_BALANCE" as const }),
+        });
+        continue;
+      }
+
+      case "SETTLEMENT": {
+        const authorization = authorizations.get(event.authorizationId);
+
+        if (!authorization || authorization.status !== "ACTIVE") {
+          recordError(
+            event,
+            "AUTHORIZATION_NOT_FOUND",
+            `No active authorization found for ${event.authorizationId}`,
+          );
+          continue;
+        }
+
+        if (
+          authorization.accountId !== event.accountId ||
+          authorization.currency !== event.currency
+        ) {
+          recordError(
+            event,
+            "AUTHORIZATION_REFERENCE_MISMATCH",
+            `Authorization ${event.authorizationId} belongs to another account or currency`,
+          );
+          continue;
+        }
+
         ledger.append({
           sourceEventId: event.id,
           accountId: event.accountId,
           currency: event.currency,
-          amount,
+          amount: -event.amount,
           valueDay: event.valueDay,
-          type: event.type,
+          type: "SETTLEMENT",
         });
-      }
-      assessFeesThrough(event.accountId, event.eventDay);
-      continue;
-    }
-
-    if (event.type === "AUTHORIZATION") {
-      if (authorizations.has(event.authorizationId)) {
-        recordError(
-          event,
-          "DUPLICATE_AUTHORIZATION",
-          `Authorization ${event.authorizationId} already exists`,
-        );
+        authorization.status = "SETTLED";
+        authorization.settledDay = event.eventDay;
+        authorization.settledAmount = event.amount;
+        assessFeesThrough(event.accountId, event.eventDay);
         continue;
       }
 
-      const activeHolds = [...authorizations.values()].reduce(
-        (total, authorization) =>
-          authorization.accountId === event.accountId &&
-          authorization.status === "ACTIVE"
-            ? total + authorization.holdAmount
-            : total,
-        0n,
-      );
-      const available =
-        ledger.balance(event.accountId, event.eventDay) - activeHolds;
-      const approved = available >= event.holdAmount;
+      case "REVERSAL": {
+        const reversedEntries = ledger
+          .allEntries()
+          .filter((entry) => entry.sourceEventId === event.reversesEventId);
 
-      authorizations.set(event.authorizationId, {
-        authorizationId: event.authorizationId,
-        accountId: event.accountId,
-        currency: event.currency,
-        holdAmount: event.holdAmount,
-        status: approved ? "ACTIVE" : "REJECTED",
-        decisionDay: event.eventDay,
-        ...(approved
-          ? {}
-          : { rejectionReason: "INSUFFICIENT_AVAILABLE_BALANCE" as const }),
-      });
-      continue;
-    }
+        if (reversedEntries.length === 0) {
+          recordError(
+            event,
+            "REVERSAL_TARGET_NOT_FOUND",
+            `No ledger entry found for ${event.reversesEventId}`,
+          );
+          continue;
+        }
 
-    if (event.type === "SETTLEMENT") {
-      const authorization = authorizations.get(event.authorizationId);
+        if (
+          reversedEntries.some(
+            (entry) =>
+              entry.accountId !== event.accountId ||
+              entry.currency !== event.currency,
+          )
+        ) {
+          recordError(
+            event,
+            "REVERSAL_REFERENCE_MISMATCH",
+            `Reversal target ${event.reversesEventId} belongs to another account or currency`,
+          );
+          continue;
+        }
 
-      if (!authorization || authorization.status !== "ACTIVE") {
-        recordError(
-          event,
-          "AUTHORIZATION_NOT_FOUND",
-          `No active authorization found for ${event.authorizationId}`,
-        );
+        if (reversedEventIds.has(event.reversesEventId)) {
+          recordError(
+            event,
+            "REVERSAL_ALREADY_APPLIED",
+            `Event ${event.reversesEventId} has already been reversed`,
+          );
+          continue;
+        }
+
+        for (const reversedEntry of reversedEntries) {
+          ledger.append({
+            sourceEventId: event.id,
+            accountId: event.accountId,
+            currency: event.currency,
+            amount: -reversedEntry.amount,
+            valueDay: event.valueDay,
+            type: "REVERSAL",
+          });
+        }
+        reversedEventIds.add(event.reversesEventId);
+        assessFeesThrough(event.accountId, event.eventDay);
         continue;
       }
 
-      if (
-        authorization.accountId !== event.accountId ||
-        authorization.currency !== event.currency
-      ) {
-        recordError(
-          event,
-          "AUTHORIZATION_REFERENCE_MISMATCH",
-          `Authorization ${event.authorizationId} belongs to another account or currency`,
-        );
-        continue;
-      }
-
-      ledger.append({
-        sourceEventId: event.id,
-        accountId: event.accountId,
-        currency: event.currency,
-        amount: -event.amount,
-        valueDay: event.valueDay,
-        type: "SETTLEMENT",
-      });
-      authorization.status = "SETTLED";
-      authorization.settledDay = event.eventDay;
-      assessFeesThrough(event.accountId, event.eventDay);
-      continue;
+      default:
+        assertNever(event);
     }
-
-    const reversedEntries = ledger
-      .allEntries()
-      .filter((entry) => entry.sourceEventId === event.reversesEventId);
-
-    if (reversedEntries.length === 0) {
-      recordError(
-        event,
-        "REVERSAL_TARGET_NOT_FOUND",
-        `No ledger entry found for ${event.reversesEventId}`,
-      );
-      continue;
-    }
-
-    if (
-      reversedEntries.some(
-        (entry) =>
-          entry.accountId !== event.accountId ||
-          entry.currency !== event.currency,
-      )
-    ) {
-      recordError(
-        event,
-        "REVERSAL_REFERENCE_MISMATCH",
-        `Reversal target ${event.reversesEventId} belongs to another account or currency`,
-      );
-      continue;
-    }
-
-    if (reversedEventIds.has(event.reversesEventId)) {
-      recordError(
-        event,
-        "REVERSAL_ALREADY_APPLIED",
-        `Event ${event.reversesEventId} has already been reversed`,
-      );
-      continue;
-    }
-
-    for (const reversedEntry of reversedEntries) {
-      ledger.append({
-        sourceEventId: event.id,
-        accountId: event.accountId,
-        currency: event.currency,
-        amount: -reversedEntry.amount,
-        valueDay: event.valueDay,
-        type: "REVERSAL",
-      });
-    }
-    reversedEventIds.add(event.reversesEventId);
-    assessFeesThrough(event.accountId, event.eventDay);
   }
 
   for (const account of accounts) {

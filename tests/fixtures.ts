@@ -58,6 +58,7 @@ export function settlement(
   id: string,
   authorizationId: string,
   accountId: string,
+  amount: bigint = 5000n,
   eventDay: Day = 3,
 ): SourceEvent {
   return {
@@ -68,7 +69,7 @@ export function settlement(
     accountId,
     currency: "AED",
     authorizationId,
-    amount: 5000n,
+    amount,
   };
 }
 

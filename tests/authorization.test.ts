@@ -82,6 +82,41 @@ describe("authorization replay", () => {
     expect(result.ledger.balance("B", 6)).toBe(0n);
   });
 
+  test.each([
+    ["zero", 0n],
+    ["negative", -1n],
+  ])(
+    "rejects a %s settlement without changing the ledger or authorization",
+    (_label, amount) => {
+      const result = replay(
+        validationAccounts,
+        [
+          credit("C1", "A", 10000n),
+          authorization("A1", "Auth-X", 5000n),
+          settlement("S1", "Auth-X", "A", amount),
+        ],
+        { endDay: 6, capitalizeInterest: false },
+      );
+
+      expect(result.errors).toEqual([
+        expect.objectContaining({ eventId: "S1", code: "INVALID_AMOUNT" }),
+      ]);
+      expect(
+        result.ledger
+          .allEntries()
+          .some((entry) => entry.sourceEventId === "S1"),
+      ).toBe(false);
+      expect(result.authorizations.get("Auth-X")).toEqual(
+        expect.objectContaining({ status: "ACTIVE", holdAmount: 5000n }),
+      );
+      expect(result.authorizations.get("Auth-X")?.settledDay).toBeUndefined();
+      expect(activeHoldAtDay(result.authorizations.get("Auth-X")!, 3)).toBe(
+        5000n,
+      );
+      expect(result.ledger.balance("A", 6)).toBe(10000n);
+    },
+  );
+
   test("preserves the original authorization when its ID is reused", () => {
     const result = replay(
       validationAccounts,

@@ -72,9 +72,11 @@ export interface AuthorizationRecord {
   readonly accountId: string;
   readonly currency: Currency;
   readonly holdAmount: bigint;
+  readonly availableBalanceAtDecision: bigint;
   status: "ACTIVE" | "SETTLED" | "REJECTED";
   decisionDay: Day;
   settledDay?: Day;
+  settledAmount?: bigint;
   rejectionReason?: "INSUFFICIENT_AVAILABLE_BALANCE";
 }
 
@@ -84,6 +86,7 @@ export interface ReplayError {
   readonly accountId: string;
   readonly code: string;
   readonly message: string;
+  readonly authorizationId?: string;
 }
 
 export interface InterestAccrual {

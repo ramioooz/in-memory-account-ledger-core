@@ -13,6 +13,9 @@ export interface AuthorizationSummary {
   readonly authorizationId: string;
   readonly status: "ACTIVE" | "SETTLED" | "REJECTED";
   readonly activeHold: bigint;
+  readonly originalHold: bigint;
+  readonly availableBalanceAtDecision: bigint;
+  readonly settledAmount?: bigint;
   readonly rejectionReason?: "INSUFFICIENT_AVAILABLE_BALANCE";
 }
 
@@ -46,6 +49,11 @@ function authorizationAtDay(
     authorizationId: authorization.authorizationId,
     status,
     activeHold: activeHoldAtDay(authorization, day),
+    originalHold: authorization.holdAmount,
+    availableBalanceAtDecision: authorization.availableBalanceAtDecision,
+    ...(authorization.settledAmount === undefined
+      ? {}
+      : { settledAmount: authorization.settledAmount }),
     ...(authorization.rejectionReason === undefined
       ? {}
       : { rejectionReason: authorization.rejectionReason }),
@@ -101,18 +109,33 @@ export function formatReports(reports: readonly DailyAccountReport[]): string {
     .map((report) => {
       const authorizations = report.authorizations.length
         ? report.authorizations
-            .map(
-              (authorization) => {
-                const reason = authorization.rejectionReason
-                  ? ` reason ${authorization.rejectionReason}`
-                  : "";
-                return `${authorization.authorizationId}:${authorization.status} hold ${report.currency} ${formatMoney(authorization.activeHold, report.currency)}${reason}`;
-              },
-            )
+            .map((authorization) => {
+              if (
+                authorization.status === "SETTLED" &&
+                authorization.settledAmount !== undefined
+              ) {
+                const unusedReleased =
+                  authorization.originalHold - authorization.settledAmount;
+                return `${authorization.authorizationId}:SETTLED original hold ${report.currency} ${formatMoney(authorization.originalHold, report.currency)} settled ${report.currency} ${formatMoney(authorization.settledAmount, report.currency)} unused hold released ${report.currency} ${formatMoney(unusedReleased, report.currency)}`;
+              }
+
+              if (authorization.status === "REJECTED") {
+                return `${authorization.authorizationId}:REJECTED attempted hold ${report.currency} ${formatMoney(authorization.originalHold, report.currency)} available at decision ${report.currency} ${formatMoney(authorization.availableBalanceAtDecision, report.currency)} reason ${authorization.rejectionReason}`;
+              }
+
+              return `${authorization.authorizationId}:ACTIVE hold ${report.currency} ${formatMoney(authorization.activeHold, report.currency)}`;
+            })
             .join(",")
         : "none";
       const errors = report.errors.length
-        ? report.errors.map((error) => `${error.eventId}:${error.code}`).join(",")
+        ? report.errors
+            .map((error) => {
+              const authorizationId = error.authorizationId
+                ? ` authorizationId=${error.authorizationId}`
+                : "";
+              return `${error.eventId}:${error.code}${authorizationId}`;
+            })
+            .join(",")
         : "none";
 
       return [
