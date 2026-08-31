@@ -16,6 +16,10 @@ E9 explicitly reverses E7's principal. No event or rule reverses the fees alread
 
 Authorization decisions are not rerun after a later event restates history. E8 is rejected because the balance known at its arrival cannot cover the AED 90 hold; E9 does not retroactively approve it.
 
+## Settlement amount validation
+
+The requirements do not define zero or negative settlement amounts. This implementation treats settlement as an actual financial debit, so it rejects amounts less than or equal to zero with `INVALID_AMOUNT` before changing the ledger or authorization. Releasing a hold without capturing funds would typically use a separate release or void event, which is not part of the supplied event model and remains outside this project's scope.
+
 ## Interest rounding convention
 
 The requirement explicitly defines the capitalized total as the sum of the rounded daily accruals. It does not specify whether an exact halfway value should round up or down. This implementation rounds each positive daily accrual to the nearest minor unit, with exact halves away from zero, before summing them.

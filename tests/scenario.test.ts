@@ -94,7 +94,13 @@ describe("complete scenario", () => {
     expect(output).toContain("ACC-002 Day 6 | ledger BHD 10.008");
     expect(output).toContain("Auth-A:ACTIVE hold AED 200.00");
     expect(output).toContain(
-      "Auth-B:REJECTED hold AED 0.00 reason INSUFFICIENT_AVAILABLE_BALANCE",
+      "Auth-A:SETTLED original hold AED 200.00 settled AED 185.00 unused hold released AED 15.00",
+    );
+    expect(output).toContain(
+      "Auth-B:REJECTED attempted hold AED 90.00 available at decision AED -230.00 reason INSUFFICIENT_AVAILABLE_BALANCE",
+    );
+    expect(output).toContain(
+      "E6:AUTHORIZATION_NOT_FOUND authorizationId=Auth-Z",
     );
   });
 });
