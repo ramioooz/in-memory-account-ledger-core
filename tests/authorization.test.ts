@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { activeHoldAtDay, replay } from "../src/replay.js";
+import { buildDailyReports, formatReports } from "../src/report.js";
 import { accounts, events } from "../src/scenario.js";
 import {
   authorization,
@@ -116,6 +117,37 @@ describe("authorization replay", () => {
       expect(result.ledger.balance("A", 6)).toBe(10000n);
     },
   );
+
+  test("reports a settlement above the original hold as an excess", () => {
+    const result = replay(
+      validationAccounts,
+      [
+        credit("C1", "A", 10000n),
+        authorization("A1", "Auth-X", 5000n),
+        settlement("S1", "Auth-X", "A", 6000n),
+      ],
+      { endDay: 6, capitalizeInterest: false },
+    );
+    const output = formatReports(buildDailyReports(result, validationAccounts));
+
+    expect(output).toContain(
+      "Auth-X:SETTLED original hold AED 50.00 settled AED 60.00 amount above hold AED 10.00",
+    );
+    expect(output).not.toContain("unused hold released AED -10.00");
+  });
+
+  test("includes an explicitly empty authorization ID in settlement errors", () => {
+    const result = replay(
+      validationAccounts,
+      [settlement("S1", "", "A")],
+      { endDay: 6, capitalizeInterest: false },
+    );
+    const output = formatReports(buildDailyReports(result, validationAccounts));
+
+    expect(output).toContain(
+      "S1:AUTHORIZATION_NOT_FOUND authorizationId=",
+    );
+  });
 
   test("preserves the original authorization when its ID is reused", () => {
     const result = replay(

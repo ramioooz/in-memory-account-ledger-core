@@ -114,9 +114,13 @@ export function formatReports(reports: readonly DailyAccountReport[]): string {
                 authorization.status === "SETTLED" &&
                 authorization.settledAmount !== undefined
               ) {
-                const unusedReleased =
+                const holdDifference =
                   authorization.originalHold - authorization.settledAmount;
-                return `${authorization.authorizationId}:SETTLED original hold ${report.currency} ${formatMoney(authorization.originalHold, report.currency)} settled ${report.currency} ${formatMoney(authorization.settledAmount, report.currency)} unused hold released ${report.currency} ${formatMoney(unusedReleased, report.currency)}`;
+                const difference =
+                  holdDifference >= 0n
+                    ? `unused hold released ${report.currency} ${formatMoney(holdDifference, report.currency)}`
+                    : `amount above hold ${report.currency} ${formatMoney(-holdDifference, report.currency)}`;
+                return `${authorization.authorizationId}:SETTLED original hold ${report.currency} ${formatMoney(authorization.originalHold, report.currency)} settled ${report.currency} ${formatMoney(authorization.settledAmount, report.currency)} ${difference}`;
               }
 
               if (authorization.status === "REJECTED") {
@@ -130,7 +134,7 @@ export function formatReports(reports: readonly DailyAccountReport[]): string {
       const errors = report.errors.length
         ? report.errors
             .map((error) => {
-              const authorizationId = error.authorizationId
+              const authorizationId = error.authorizationId !== undefined
                 ? ` authorizationId=${error.authorizationId}`
                 : "";
               return `${error.eventId}:${error.code}${authorizationId}`;
