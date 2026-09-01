@@ -10,3 +10,4 @@
 - 2026-08-30T21:52:06+04:00 — Clarified the interest rate and rounding convention and aligned the documented Node.js versions with the toolchain.
 - 2026-08-30T22:51:20+04:00 — Wrote and visually verified the three-page architecture and trade-offs PDF.
 - 2026-08-31T22:17:31+04:00 — Documented settlement amount validation, clarified event dispatch and expanded authorization decision reporting.
+- 2026-09-01T09:50:43+04:00 — Expanded the README with architecture, replay flow, test coverage and the full verified output.
