@@ -100,7 +100,7 @@ The suite contains 19 normal passing cases and one annotated expected-failure ca
 
 ## Full verified replay
 
-The following is the complete report produced by `npm run replay`:
+The following is the complete Day 1–6 report body printed by the program:
 
 ```text
 ACC-001 Day 1 | ledger AED 250.00 | available AED 250.00 | fees AED 0.00 | authorizations none | errors none
